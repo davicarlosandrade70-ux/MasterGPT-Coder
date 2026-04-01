@@ -882,38 +882,38 @@ function showAuth() {
       <div class="auth-box">
         <div class="auth-header">
           <div class="auth-logo">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
             </svg>
           </div>
-          <div class="auth-title">${authMode === 'login' ? 'Bem-vindo de volta' : 'Criar conta'}</div>
-          <div class="auth-subtitle">${authMode === 'login' ? 'Entre para continuar no MasterGPT' : 'Comece sua jornada profissional'}</div>
+          <div class="auth-title">${authMode === 'login' ? 'Bem-vindo' : 'Criar conta'}</div>
+          <div class="auth-subtitle">${authMode === 'login' ? 'Identifique-se para acessar o MasterGPT' : 'Comece a construir com IA profissional'}</div>
         </div>
         
         <form class="auth-form" onsubmit="handleAuthAction(event)">
           ${authMode === 'register' ? `
             <div class="form-group">
               <label class="form-label">Email</label>
-              <input type="email" id="auth-email" class="form-input" placeholder="seu@email.com" required>
+              <input type="email" id="auth-email" class="form-input" placeholder="exemplo@email.com" required autocomplete="email">
             </div>
           ` : ''}
           <div class="form-group">
             <label class="form-label">Usuário</label>
-            <input type="text" id="auth-username" class="form-input" placeholder="seu_usuario" required>
+            <input type="text" id="auth-username" class="form-input" placeholder="seu_usuario" required autocomplete="username">
           </div>
           <div class="form-group">
             <label class="form-label">Senha</label>
-            <input type="password" id="auth-password" class="form-input" placeholder="••••••••" required>
+            <input type="password" id="auth-password" class="form-input" placeholder="••••••••" required autocomplete="${authMode === 'login' ? 'current-password' : 'new-password'}">
           </div>
           <button type="submit" class="auth-btn" id="auth-submit-btn">
-            ${authMode === 'login' ? 'Entrar' : 'Registrar'}
+            ${authMode === 'login' ? 'Entrar no Sistema' : 'Finalizar Cadastro'}
           </button>
         </form>
 
         <div class="auth-switch">
           ${authMode === 'login' 
-            ? `Não tem conta? <span class="auth-link" onclick="toggleAuthMode('register')">Registre-se</span>` 
-            : `Já tem conta? <span class="auth-link" onclick="toggleAuthMode('login')">Faça login</span>`}
+            ? `Não possui acesso? <span class="auth-link" onclick="toggleAuthMode('register')">Solicitar registro</span>` 
+            : `Já possui conta? <span class="auth-link" onclick="toggleAuthMode('login')">Acessar agora</span>`}
         </div>
       </div>
     </div>
@@ -928,33 +928,50 @@ function toggleAuthMode(mode) {
 async function handleAuthAction(e) {
   e.preventDefault();
   const btn = document.getElementById('auth-submit-btn');
-  const username = document.getElementById('auth-username').value;
-  const password = document.getElementById('auth-password').value;
-  const email = document.getElementById('auth-email')?.value;
+  const userInp = document.getElementById('auth-username');
+  const passInp = document.getElementById('auth-password');
+  const mailInp = document.getElementById('auth-email');
+
+  const username = userInp.value;
+  const password = passInp.value;
+  const email = mailInp?.value;
 
   btn.disabled = true;
-  btn.textContent = 'Carregando...';
+  const originalText = btn.textContent;
+  btn.innerHTML = `<span class="thinking-dots" style="padding:0;transform:scale(0.7)"><span></span><span></span><span></span></span>`;
 
   try {
     if (authMode === 'login') {
       await auth.login(username, password);
-      showToast('Login realizado com sucesso!', 'ok');
+      showToast('Acesso autorizado!', 'ok');
     } else {
       await auth.register(username, email, password);
-      showToast('Conta criada! Agora faça login.', 'ok');
+      showToast('Conta criada com sucesso! Faça login.', 'ok');
       authMode = 'login';
       showAuth();
       return;
     }
     
-    document.getElementById('auth-overlay-container').innerHTML = '';
-    updateUserProfile();
-    newChat();
+    // Sucesso no login
+    const overlay = document.querySelector('.auth-overlay');
+    if (overlay) {
+      overlay.style.opacity = '0';
+      const box = overlay.querySelector('.auth-box');
+      if (box) box.style.transform = 'translateY(-20px) scale(0.95)';
+      setTimeout(() => {
+        document.getElementById('auth-overlay-container').innerHTML = '';
+        updateUserProfile();
+        newChat();
+      }, 300);
+    } else {
+      document.getElementById('auth-overlay-container').innerHTML = '';
+      updateUserProfile();
+      newChat();
+    }
   } catch (err) {
     showToast(err.message, 'err');
-  } finally {
     btn.disabled = false;
-    btn.textContent = authMode === 'login' ? 'Entrar' : 'Registrar';
+    btn.textContent = originalText;
   }
 }
 

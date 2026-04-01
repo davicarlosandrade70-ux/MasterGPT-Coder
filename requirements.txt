@@ -5,10 +5,9 @@ python-dotenv
 aiofiles
 python-jose[cryptography]
 passlib[bcrypt]
-sqlalchemy
-aiosqlite
-slowapi
 pydantic[email]
+asyncpg
+SQLAlchemy>=2.0.0
 fastapi-mail
 pytest
 pytest-asyncio

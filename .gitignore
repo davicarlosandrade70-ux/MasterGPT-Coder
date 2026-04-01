@@ -10,3 +10,5 @@ build/
 sql_app.db
 .vercel/
 *.log
+
+.vercel
