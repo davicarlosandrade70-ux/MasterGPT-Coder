@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database URL for SQLite (async)
-# For production, you might want to use PostgreSQL
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./sql_app.db")
+# Note: On Vercel, we use /tmp/ because the root filesystem is read-only.
+# This makes the database ephemeral (cleared on cold starts).
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:////tmp/sql_app.db")
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = sessionmaker(
