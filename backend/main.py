@@ -9,11 +9,21 @@ import json
 import os
 from datetime import datetime
 
+import contextlib
+import traceback
+
 # Local imports
 from .providers import stream_provider
 from .routes import auth, admin
 from .database.session import engine
 from .database.models import Base
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Database Initialization
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
 
 # Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -22,17 +32,12 @@ app = FastAPI(
     description="Professional AI Coder API with Secure Auth and Admin Dashboard",
     version="2.0.0",
     docs_url="/api/docs",
-    redoc_url="/api/redoc"
+    redoc_url="/api/redoc",
+    lifespan=lifespan
 )
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# Database Initialization
-@app.on_event("startup")
-async def startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
 # Enable CORS
 app.add_middleware(
@@ -70,7 +75,7 @@ async def chat_endpoint(request: Request):
     except RateLimitExceeded:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"{str(e)}\n\n{traceback.format_exc()}")
 
 # Health Check
 @app.get("/api/health")
@@ -82,7 +87,11 @@ async def health_check():
 async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
-        content={"message": "An unexpected error occurred", "detail": str(exc)},
+        content={
+            "message": "An unexpected error occurred", 
+            "detail": str(exc),
+            "traceback": traceback.format_exc()
+        },
     )
 
 # Mount frontend
