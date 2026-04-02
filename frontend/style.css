@@ -888,29 +888,99 @@ body {
   position: fixed;
   inset: 0;
   background: var(--bg);
-  z-index: 9000;
+  z-index: 10000;
   display: flex;
-  flex-direction: column;
+  overflow: hidden;
+  animation: admin-fade-in 0.3s ease;
 }
 
-.admin-header {
-  height: 64px;
+@keyframes admin-fade-in { from{opacity:0} to{opacity:1} }
+
+.admin-sidebar {
+  width: 260px;
+  background: var(--bg-input);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 0;
+}
+
+.admin-logo {
+  padding: 0 24px 24px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
   border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.admin-nav {
+  flex: 1;
+  padding: 0 12px;
+}
+
+.admin-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 4px;
+}
+
+.admin-nav-item:hover { background: var(--bg-hover); color: var(--text); }
+.admin-nav-item.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+
+.admin-footer {
+  padding: 0 24px;
+}
+
+.admin-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.admin-main-header {
+  height: 72px;
+  padding: 0 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
   background: var(--bg-input);
 }
 
-.admin-content {
+.admin-main-header h1 { font-size: 20px; font-weight: 600; margin: 0; }
+
+.admin-main-content {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 24px;
-  max-width: 1200px;
-  margin: 0 auto;
-  width: 100%;
+  padding: 32px;
 }
+
+/* Stats */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+}
+
+.stat-card {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+
+.stat-label { font-size: 14px; color: var(--text-dim); margin-bottom: 8px; }
+.stat-value { font-size: 32px; font-weight: 700; color: var(--text); }
 
 .admin-table-container {
   background: var(--bg-input);

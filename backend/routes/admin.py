@@ -21,6 +21,7 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
+    ban_reason: Optional[str] = None
 
 class UserDetail(BaseModel):
     id: int
@@ -28,6 +29,7 @@ class UserDetail(BaseModel):
     email: EmailStr
     role: UserRole
     is_active: bool
+    ban_reason: Optional[str]
     created_at: datetime
     last_login: Optional[datetime]
 
@@ -76,6 +78,73 @@ async def list_users(
         "page": page,
         "size": size
     }
+
+@router.get("/stats")
+async def get_admin_stats(db: AsyncSession = Depends(get_db)):
+    total_users = await db.scalar(select(func.count(User.id)))
+    active_users = await db.scalar(select(func.count(User.id)).where(User.is_active == True))
+    banned_users = await db.scalar(select(func.count(User.id)).where(User.is_active == False))
+    
+    return {
+        "total": total_users,
+        "active": active_users,
+        "banned": banned_users
+    }
+
+@router.post("/users/{user_id}/ban")
+async def ban_user(
+    user_id: int, 
+    reason: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(check_role([UserRole.ADMIN, UserRole.MODERATOR]))
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    user.is_active = False
+    user.ban_reason = reason
+    db.add(user)
+    
+    # Audit log
+    audit = AuditLog(
+        user_id=current_user.id, 
+        action="BAN", 
+        description=f"Banned user {user.username}. Reason: {reason}"
+    )
+    db.add(audit)
+    
+    await db.commit()
+    return {"message": f"User {user.username} banned successfully"}
+
+@router.post("/users/{user_id}/unban")
+async def unban_user(
+    user_id: int, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(check_role([UserRole.ADMIN, UserRole.MODERATOR]))
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    user.is_active = True
+    user.ban_reason = None
+    db.add(user)
+    
+    # Audit log
+    audit = AuditLog(
+        user_id=current_user.id, 
+        action="UNBAN", 
+        description=f"Unbanned user {user.username}"
+    )
+    db.add(audit)
+    
+    await db.commit()
+    return {"message": f"User {user.username} unbanned successfully"}
 
 @router.put("/users/{user_id}", response_model=UserDetail)
 async def update_user(

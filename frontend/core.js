@@ -44,7 +44,8 @@ let orchSlots = [
 ];
 let showReasoning = false;
 let conversations = [];
-let activeConvId = null;
+let activeConvId = null; // ID local (localStorage legacy/temp)
+let activeChatId = null; // ID no Supabase (novo sistema)
 let isLoading = false;
 let abortController = null;
 let pendingConfirmFn = null;
@@ -209,11 +210,20 @@ async function streamModel(provider, modelValue, messages, targetEl = null, sign
   const apiUrl = isDev ? 'http://localhost:8000/api/chat' : '/api/chat';
 
   let res;
+  const token = localStorage.getItem('token');
   try {
     res = await fetch(apiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, model: modelValue, messages: apiMessages }),
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : ''
+      },
+      body: JSON.stringify({ 
+        provider, 
+        model: modelValue, 
+        messages: apiMessages,
+        session_id: window.activeChatId // Envia o ID da sessão se houver
+      }),
       signal
     });
   } catch(e) {
@@ -397,3 +407,29 @@ A resposta deve ser completa, coesa e pronta. Não mencione o processo de revis�
       : null
   };
 }
+
+// ── PERSISTÊNCIA SUPABASE ──────────────────────────────────────────
+async function saveAssistantMessage(chatId, content, reasoning = null) {
+  const token = localStorage.getItem('token');
+  if (!token || !chatId) return;
+
+  const isDev = location.port === '5500' || location.hostname === '127.0.0.1';
+  const apiUrl = (isDev ? 'http://localhost:8000' : '') + `/api/chats/${chatId}/messages/internal`;
+
+  try {
+    // Note: We need this endpoint or reuse the frontend logic. 
+    // To simplify, we'll implement a POST /api/chats/{id}/messages in the backend routes/chats.py.
+    await fetch((isDev ? 'http://localhost:8000' : '') + `/api/chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ role: 'assistant', content, reasoning })
+    });
+  } catch (e) {
+    console.warn('Falha ao salvar no banco:', e);
+  }
+}
+
+window.saveAssistantMessage = saveAssistantMessage;

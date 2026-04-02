@@ -17,3 +17,4 @@ reportlab
 python-multipart
 jinja2
 bcrypt
+slowapi

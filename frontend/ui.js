@@ -115,39 +115,74 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { closeModal(); closeConfirm(); }
 });
 
-// ── HISTÓRICO ─────────────────────────────────────────────────────
+// ── HISTÓRICO PB (SUPABASE) ────────────────────────────────────────
+let dbConversations = [];
+
+async function fetchHistory() {
+  const token = localStorage.getItem('token');
+  if (!token) return;
+
+  try {
+    const isDev = location.port === '5500' || location.hostname === '127.0.0.1';
+    const apiUrl = (isDev ? 'http://localhost:8000' : '') + '/api/chats/';
+    const res = await fetch(apiUrl, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      dbConversations = await res.json();
+      renderHistory();
+    }
+  } catch (e) {
+    console.error('Erro ao buscar histórico:', e);
+  }
+}
+
 function renderHistory() {
   const list = document.getElementById('history-list');
-  if (!conversations.length) {
+  const conversationsToRender = dbConversations.length ? dbConversations : conversations; // Fallback legacy
+
+  if (!conversationsToRender.length) {
     list.innerHTML = '<div class="history-empty">Nenhuma conversa salva</div>';
     return;
   }
-  list.innerHTML = conversations.slice(0, 50).map(c =>
-    `<div class="history-item-container${c.id === activeConvId ? ' active' : ''}">
+
+  list.innerHTML = conversationsToRender.slice(0, 50).map(c => {
+    const id = c.id;
+    const title = c.title || 'Nova conversa';
+    const isActive = id === window.activeChatId;
+    
+    return `<div class="history-item-container${isActive ? ' active' : ''}">
       <button class="history-item"
-        onclick="historyClickHandler('${c.id}')"
+        onclick="historyClickHandler('${id}')"
         role="listitem"
-        title="${escHtml(c.title)}"
-      >${escHtml(c.title)}</button>
-      <button class="history-delete-btn" onclick="deleteConversation('${c.id}', event)" title="Apagar conversa">
+        title="${escHtml(title)}"
+      >${escHtml(title)}</button>
+      <button class="history-delete-btn" onclick="deleteConversation('${id}', event)" title="Apagar conversa">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
       </button>
-    </div>`
-  ).join('');
+    </div>`;
+  }).join('');
 }
 
-function deleteConversation(id, event) {
+async function deleteConversation(id, event) {
   if (event) event.stopPropagation();
   
-  // Encontrar a conversa para mostrar o título no confirm (opcional, mas bom UX)
-  const conv = conversations.find(c => c.id === id);
-  if (!conv) return;
+  showConfirm(async () => {
+    const token = localStorage.getItem('token');
+    if (token && !isNaN(id)) {
+      try {
+        const isDev = location.port === '5500' || location.hostname === '127.0.0.1';
+        await fetch((isDev ? 'http://localhost:8000' : '') + `/api/chats/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      } catch (e) {}
+    }
 
-  showConfirm(() => {
+    dbConversations = dbConversations.filter(c => c.id != id);
     conversations = conversations.filter(c => c.id !== id);
-    localStorage.setItem('mgpt2_convs', JSON.stringify(conversations.slice(0, 60)));
     
-    if (activeConvId === id) {
+    if (window.activeChatId == id || activeConvId === id) {
       newChat();
     } else {
       renderHistory();
@@ -175,7 +210,34 @@ function saveConv(id, messages) {
   renderHistory();
 }
 
-function loadConv(id) {
+async function loadConv(id) {
+  const token = localStorage.getItem('token');
+  
+  // Se for um ID numérico, buscar no banco
+  if (token && !isNaN(id)) {
+    try {
+      window.activeChatId = id;
+      chatArea.innerHTML = '<div class="loader-centered"><span class="thinking-dots"><span></span><span></span><span></span></span></div>';
+      
+      const isDev = location.port === '5500' || location.hostname === '127.0.0.1';
+      const res = await fetch((isDev ? 'http://localhost:8000' : '') + `/api/chats/${id}/messages`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (res.ok) {
+        const msgs = await res.json();
+        chatArea.innerHTML = '';
+        msgs.forEach(m => renderMessage(m.role, m.content, m.reasoning, false));
+        scrollToBottom(false);
+        renderHistory();
+        return;
+      }
+    } catch (e) {
+      console.error('Erro ao carregar chat:', e);
+    }
+  }
+
+  // Fallback legacy (localStorage)
   const conv = conversations.find(c => c.id === id);
   if (!conv) return;
   activeConvId = id;
@@ -187,11 +249,12 @@ function loadConv(id) {
 
 function newChat() {
   activeConvId = null;
+  window.activeChatId = null;
   chatArea.innerHTML = '';
   userScrolledUp = false;
   if (scrollFab) scrollFab.style.display = 'none';
   renderWelcome();
-  renderHistory();
+  fetchHistory(); // Recarregar do banco
   document.getElementById('user-input').focus();
 }
 
@@ -426,6 +489,29 @@ async function sendMessage() {
   userScrolledUp = false;
   setLoading(true);
 
+  // ── Sessão no Banco de Dados (Supabase) ──
+  if (!window.activeChatId) {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const isDev = location.port === '5500' || location.hostname === '127.0.0.1';
+        const res = await fetch((isDev ? 'http://localhost:8000' : '') + '/api/chats/', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ title: text.slice(0, 30) + '...' })
+        });
+        if (res.ok) {
+          const chat = await res.json();
+          window.activeChatId = chat.id;
+          renderHistory();
+        }
+      } catch (e) {}
+    }
+  }
+
   if (!activeConvId)
     activeConvId = 'c' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
 
@@ -471,6 +557,11 @@ async function sendMessage() {
       }
 
       saveConv(activeConvId, messages);
+      
+      // Salvar no banco (Supabase)
+      if (window.activeChatId) {
+        await saveAssistantMessage(window.activeChatId, contentToSave, reasoning || null);
+      }
 
       // ── FEEDBACK LOOP: IA vê o output e comenta ───────────────
       if (hasSkills && !abortController?.signal?.aborted) {
@@ -1004,55 +1095,141 @@ function updateUserProfile() {
   `;
 }
 
+let currentAdminTab = 'users';
+
 async function showAdmin() {
   const container = document.getElementById('admin-overlay-container');
   if (!container) return;
 
   container.innerHTML = `
     <div class="admin-overlay">
-      <div class="admin-header">
-        <div class="logo">Painel Administrativo</div>
-        <button class="icon-btn" onclick="closeAdmin()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="12"/>
-          </svg>
-        </button>
-      </div>
-      <div class="admin-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
-          <h2 style="margin:0">Gerenciamento de Usuários</h2>
-          <div style="display:flex; gap:12px;">
-            <button class="action-btn" onclick="exportUsers()">Exportar CSV</button>
+      <div class="admin-sidebar">
+        <div class="admin-logo">Admin Console</div>
+        <div class="admin-nav">
+          <div class="admin-nav-item ${currentAdminTab === 'stats' ? 'active' : ''}" onclick="switchAdminTab('stats')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 3v18h18"/><path d="M18 17l-6-4-2 2-4-4"/>
+            </svg>
+            Estatísticas
+          </div>
+          <div class="admin-nav-item ${currentAdminTab === 'users' ? 'active' : ''}" onclick="switchAdminTab('users')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            Usuários
+          </div>
+          <div class="admin-nav-item ${currentAdminTab === 'logs' ? 'active' : ''}" onclick="switchAdminTab('logs')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>
+            </svg>
+            Auditoria
           </div>
         </div>
-        
-        <div class="admin-table-container">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Usuário</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Criado em</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody id="admin-user-list">
-              <tr><td colspan="6" style="text-align:center; padding:32px;">Carregando usuários...</td></tr>
-            </tbody>
-          </table>
+        <div class="admin-footer">
+          <button class="action-btn" style="width:100%" onclick="closeAdmin()">Sair do Console</button>
         </div>
-        <div id="admin-pagination" class="pagination"></div>
+      </div>
+      <div class="admin-main">
+        <header class="admin-main-header">
+          <h1 id="admin-tab-title">Gerenciamento</h1>
+          <div id="admin-header-actions"></div>
+        </header>
+        <div class="admin-main-content" id="admin-canvas">
+          <!-- Conteúdo dinâmico aqui -->
+        </div>
       </div>
     </div>
   `;
   
-  await fetchAdminUsers();
+  renderAdminTab();
 }
 
-function closeAdmin() {
-  document.getElementById('admin-overlay-container').innerHTML = '';
+function switchAdminTab(tab) {
+  currentAdminTab = tab;
+  showAdmin();
+}
+
+async function renderAdminTab() {
+  const canvas = document.getElementById('admin-canvas');
+  const title = document.getElementById('admin-tab-title');
+  const actions = document.getElementById('admin-header-actions');
+  if (!canvas) return;
+
+  if (currentAdminTab === 'stats') {
+    title.textContent = 'Estatísticas do Sistema';
+    actions.innerHTML = '';
+    canvas.innerHTML = '<div class="loader">Carregando stats...</div>';
+    const stats = await fetch('/api/admin/stats', { headers: { 'Authorization': `Bearer ${auth.token}` } }).then(r => r.json());
+    canvas.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total de Usuários</div>
+          <div class="stat-value">${stats.total}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Usuários Ativos</div>
+          <div class="stat-value" style="color:var(--accent)">${stats.active}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Usuários Banidos</div>
+          <div class="stat-value" style="color:var(--danger)">${stats.banned}</div>
+        </div>
+      </div>
+    `;
+  } else if (currentAdminTab === 'users') {
+    title.textContent = 'Gerenciamento de Usuários';
+    actions.innerHTML = '<button class="action-btn" onclick="exportUsers()">Exportar CSV</button>';
+    canvas.innerHTML = `
+      <div class="admin-table-container">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Motivo Suspensão</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="admin-user-list">
+            <tr><td colspan="6" style="text-align:center; padding:32px;">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="admin-pagination" class="pagination"></div>
+    `;
+    await fetchAdminUsers();
+  } else if (currentAdminTab === 'logs') {
+    title.textContent = 'Audit Logs';
+    actions.innerHTML = '';
+    canvas.innerHTML = '<div class="loader">Carregando logs...</div>';
+    const logs = await fetch('/api/admin/logs', { headers: { 'Authorization': `Bearer ${auth.token}` } }).then(r => r.json());
+    canvas.innerHTML = `
+      <div class="admin-table-container">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Data/Hora</th>
+              <th>Ação</th>
+              <th>ID Usuário</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${logs.map(l => `
+              <tr>
+                <td style="white-space:nowrap">${new Date(l.timestamp).toLocaleString()}</td>
+                <td><span class="badge ${l.action === 'BAN' ? 'badge-admin' : 'badge-user'}">${l.action}</span></td>
+                <td>#${l.user_id}</td>
+                <td>${escHtml(l.description)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 }
 
 async function fetchAdminUsers(page = 1) {
@@ -1077,19 +1254,58 @@ function renderAdminUsers(users) {
       <td><strong>${escHtml(u.username)}</strong></td>
       <td>${escHtml(u.email)}</td>
       <td><span class="badge badge-${u.role}">${u.role}</span></td>
-      <td><span class="badge ${u.is_active ? 'badge-user' : 'badge-admin'}">${u.is_active ? 'Ativo' : 'Inativo'}</span></td>
-      <td>${new Date(u.created_at).toLocaleDateString()}</td>
+      <td>
+        <span class="badge ${u.is_active ? 'badge-user' : 'badge-admin'}">
+          ${u.is_active ? 'Ativo' : 'Banido'}
+        </span>
+      </td>
+      <td style="font-size:12px; color:var(--text-dim)">${u.ban_reason || '-'}</td>
       <td>
         <div style="display:flex; gap:8px;">
-          <button class="icon-btn" onclick="toggleUserStatus(${u.id}, ${u.is_active})" title="${u.is_active ? 'Desativar' : 'Ativar'}">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/>
-            </svg>
-          </button>
+          ${u.id !== auth.user.id ? `
+            ${u.is_active ? `
+              <button class="action-btn" style="color:var(--danger); border-color:var(--danger)33" onclick="banUserAction(${u.id})">Banir</button>
+            ` : `
+              <button class="action-btn" style="color:var(--accent); border-color:var(--accent)33" onclick="unbanUserAction(${u.id})">Desbanir</button>
+            `}
+          ` : '<span style="font-size:10px; color:var(--text-dim)">Você</span>'}
         </div>
       </td>
     </tr>
   `).join('');
+}
+
+async function banUserAction(userId) {
+  const reason = prompt("Digite o motivo do banimento:");
+  if (!reason) return;
+
+  try {
+    const res = await fetch(`/api/admin/users/${userId}/ban?reason=${encodeURIComponent(reason)}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${auth.token}` }
+    });
+    if (res.ok) {
+      showToast('Usuário banido!', 'ok');
+      fetchAdminUsers();
+    }
+  } catch (err) {
+    showToast('Erro ao banir usuário', 'err');
+  }
+}
+
+async function unbanUserAction(userId) {
+  try {
+    const res = await fetch(`/api/admin/users/${userId}/unban`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${auth.token}` }
+    });
+    if (res.ok) {
+      showToast('Usuário desbanido!', 'ok');
+      fetchAdminUsers();
+    }
+  } catch (err) {
+    showToast('Erro ao desbanir usuário', 'err');
+  }
 }
 
 function renderAdminPagination(total, page, size) {
@@ -1097,6 +1313,8 @@ function renderAdminPagination(total, page, size) {
   if (!container) return;
 
   const totalPages = Math.ceil(total / size);
+  if (totalPages <= 1) { container.innerHTML = ''; return; }
+  
   let html = '';
   for (let i = 1; i <= totalPages; i++) {
     html += `<button class="action-btn ${i === page ? 'active' : ''}" onclick="fetchAdminUsers(${i})">${i}</button>`;
@@ -1104,23 +1322,8 @@ function renderAdminPagination(total, page, size) {
   container.innerHTML = html;
 }
 
-async function toggleUserStatus(userId, currentStatus) {
-  try {
-    const response = await fetch(`/api/admin/users/${userId}`, {
-      method: 'PUT',
-      headers: { 
-        'Authorization': `Bearer ${auth.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ is_active: !currentStatus })
-    });
-    if (response.ok) {
-      showToast('Status do usuário atualizado', 'ok');
-      fetchAdminUsers();
-    }
-  } catch (err) {
-    showToast('Erro ao atualizar usuário', 'err');
-  }
+function closeAdmin() {
+  document.getElementById('admin-overlay-container').innerHTML = '';
 }
 
 async function exportUsers() {
@@ -1132,7 +1335,7 @@ async function exportUsers() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'users.csv';
+    a.download = `users_export_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
     showToast('Exportação concluída', 'ok');
   } catch (err) {
@@ -1151,6 +1354,7 @@ function initUI() {
   } else {
     auth.fetchMe().then(() => {
       updateUserProfile();
+      fetchHistory(); // Sincronizar histórico do Supabase
     });
   }
 

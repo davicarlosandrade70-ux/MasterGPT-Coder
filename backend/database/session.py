@@ -11,6 +11,12 @@ load_dotenv()
 # On Vercel, we use NullPool to avoid stale connections in short-lived lambdas
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 
+# Ensure postgresql use asyncpg driver
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 # Use NullPool for Serverless environments (Vercel)
 connect_args = {}
 if "sqlite" in DATABASE_URL:

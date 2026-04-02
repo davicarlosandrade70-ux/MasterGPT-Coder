@@ -33,7 +33,13 @@ async def get_current_user(
         raise credentials_exception
         
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
+        detail = "Sua conta foi suspensa."
+        if user.ban_reason:
+            detail += f" Motivo: {user.ban_reason}"
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail=detail
+        )
         
     return user
 

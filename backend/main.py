@@ -14,9 +14,10 @@ import traceback
 
 # Local imports
 from .providers import stream_provider
-from .routes import auth, admin
-from .database.session import engine
-from .database.models import Base
+from .routes import auth, admin, chats
+from .database.session import engine, get_db
+from .database.models import Base, ChatMessage, ChatSession, User
+from .auth.deps import get_current_user
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,22 +52,42 @@ app.add_middleware(
 # Routes
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(chats.router)
 
 @app.post("/api/chat")
-@limiter.limit("5/minute")
-async def chat_endpoint(request: Request):
+@limiter.limit("10/minute")
+async def chat_endpoint(
+    request: Request, 
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Unified endpoint for AI requests.
-    Expects JSON: { "provider": str, "model": str, "messages": list }
+    Unified endpoint for AI requests. Pre-auth required.
+    Expects: { provider, model, messages, session_id? }
     """
     try:
         data = await request.json()
         provider = data.get("provider")
         model = data.get("model")
         messages = data.get("messages")
+        session_id = data.get("session_id")
 
         if not provider or not model or not messages:
             raise HTTPException(status_code=400, detail="Missing required fields")
+
+        # Se houver session_id, salvar a última pergunta do usuário
+        if session_id:
+            # Verificar se a sessão pertence ao usuário
+            chat_session = await db.get(ChatSession, session_id)
+            if chat_session and chat_session.user_id == current_user.id:
+                last_msg = messages[-1]["content"] if messages else ""
+                if last_msg:
+                    db.add(ChatMessage(session_id=session_id, role="user", content=last_msg))
+                    await db.commit()
+
+        # Nota: O salvamento da resposta do assistente (async) deve ser feito no frontend 
+        # ou via wrapper de gerador. Para manter performance de streaming, 
+        # o frontend enviará a resposta final para salvar após o término do stream.
 
         return StreamingResponse(
             stream_provider(provider, model, messages),
@@ -74,8 +95,10 @@ async def chat_endpoint(request: Request):
         )
     except RateLimitExceeded:
         raise
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{str(e)}\n\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Erro no chat: {str(e)}")
 
 # Health Check
 @app.get("/api/health")
